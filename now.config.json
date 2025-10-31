@@ -1,0 +1,6 @@
+{
+  "scope": "x_1599224_servicen",
+  "scopeId": "e282deeb83f87210d436fbb6feaad31a",
+  "name": "Servicenow C",
+  "tsconfigPath": "./src/server/tsconfig.json"
+}
