@@ -17,6 +17,10 @@ declare global {
                         table: 'sys_module'
                         id: 'c33ca34899ed40ea830ac3ff7e97cc2c'
                     }
+                    'components/GameBoard.css': {
+                        table: 'sys_ux_theme_asset'
+                        id: 'c6d9553cbf624274975b8e7a10a6584e'
+                    }
                     'crossword-category': {
                         table: 'sys_app_category'
                         id: '1706d159123244f78799d5886a9443e8'

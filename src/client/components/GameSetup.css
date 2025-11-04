@@ -1,4 +1,4 @@
-/* Game Setup Styles */
+/* Game Setup Styles with Level Progression */
 
 .game-setup {
   max-width: 800px;
@@ -39,21 +39,88 @@
 }
 
 .config-card .card-header h3,
-.players-card .card-header h3 {
+.players-card .card-header h3,
+.multiplayer-card .card-header h3 {
   margin: 0;
   font-size: 1.3rem;
   font-weight: 600;
 }
 
-.difficulty-description {
-  margin-top: var(--spacing-sm);
-  font-size: 0.9rem;
-  color: var(--sn-dark-gray);
-  font-style: italic;
-  padding: var(--spacing-sm);
+/* Level Progression Info */
+.level-info {
+  margin-top: var(--spacing-md);
+}
+
+.level-description {
+  background: linear-gradient(135deg, rgba(129, 181, 161, 0.1) 0%, rgba(44, 95, 78, 0.1) 100%);
+  border: 2px solid var(--sn-primary);
+  border-radius: var(--radius-lg);
+  padding: var(--spacing-lg);
+}
+
+.level-description h4 {
+  margin: 0 0 var(--spacing-md) 0;
+  color: var(--sn-secondary);
+  font-size: 1.2rem;
+  font-weight: 600;
+}
+
+.level-description p {
+  margin: 0 0 var(--spacing-xs) 0;
+  color: var(--sn-text);
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
+
+/* Multiplayer Card */
+.multiplayer-card {
+  border-left: 4px solid var(--sn-accent);
+}
+
+.multiplayer-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  margin-bottom: var(--spacing-lg);
+  flex-wrap: wrap;
+}
+
+.join-room-section {
+  display: flex;
+  gap: var(--spacing-sm);
+  flex: 1;
+  min-width: 200px;
+}
+
+.join-room-section input {
+  flex: 1;
+  font-family: monospace;
+  font-weight: bold;
+  text-align: center;
+  letter-spacing: 2px;
+}
+
+.room-info {
   background: var(--sn-background);
-  border-radius: var(--radius-sm);
-  border-left: 3px solid var(--sn-primary);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-md);
+  text-align: center;
+  border: 2px solid var(--sn-primary);
+}
+
+.room-info h4 {
+  margin: 0 0 var(--spacing-sm) 0;
+  color: var(--sn-secondary);
+  font-size: 1.1rem;
+  font-family: monospace;
+  font-weight: 700;
+  letter-spacing: 3px;
+}
+
+.room-info p {
+  margin: 0 0 var(--spacing-md) 0;
+  color: var(--sn-dark-gray);
+  font-size: 0.9rem;
 }
 
 .players-grid {
@@ -88,7 +155,9 @@
 
 .avatar-preview {
   display: flex;
-  justify-content: center;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--spacing-sm);
   margin-top: var(--spacing-md);
 }
 
@@ -105,10 +174,23 @@
   border: 3px solid var(--sn-white);
   box-shadow: var(--shadow-md);
   transition: all 0.2s ease;
+  position: relative;
 }
 
 .avatar:hover {
   transform: scale(1.1);
+}
+
+.avatar-icon {
+  font-size: 1.8rem;
+  z-index: 2;
+}
+
+.avatar-name {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--sn-text);
+  text-align: center;
 }
 
 /* Avatar Color Schemes */
@@ -130,9 +212,10 @@
 }
 
 .setup-footer .btn {
-  min-width: 200px;
-  font-size: 1.1rem;
+  min-width: 250px;
+  font-size: 1.2rem;
   padding: var(--spacing-md) var(--spacing-xxl);
+  font-weight: 600;
 }
 
 /* Responsive Design */
@@ -152,16 +235,35 @@
   .grid-2 {
     grid-template-columns: 1fr;
   }
+  
+  .multiplayer-controls {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  
+  .join-room-section {
+    min-width: auto;
+  }
+  
+  .setup-footer .btn {
+    min-width: 200px;
+    font-size: 1.1rem;
+  }
 }
 
 /* Animation for setup cards */
 .config-card,
-.players-card {
+.players-card,
+.multiplayer-card {
   animation: slideInUp 0.4s ease;
 }
 
 .players-card {
   animation-delay: 0.1s;
+}
+
+.multiplayer-card {
+  animation-delay: 0.05s;
 }
 
 @keyframes slideInUp {

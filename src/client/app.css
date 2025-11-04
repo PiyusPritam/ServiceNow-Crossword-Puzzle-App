@@ -17,6 +17,7 @@
   --color-warning: #ffc107;
   --color-error: #dc3545;
   --color-info: #17a2b8;
+  --color-auto-fill: #9c27b0; /* Purple for auto-filled content */
   
   /* Spacing */
   --spacing-xs: 4px;
@@ -58,49 +59,53 @@ body {
   flex-direction: column;
 }
 
-/* Header Styles */
-.app-header {
+/* Navigation Styles */
+.app-nav {
+  background: var(--sn-white);
+  border-bottom: 1px solid var(--sn-light-gray);
+  padding: var(--spacing-sm) var(--spacing-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+.btn-home,
+.btn-back {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm) var(--spacing-md);
   background: linear-gradient(135deg, var(--sn-primary) 0%, var(--sn-secondary) 100%);
   color: var(--sn-white);
-  padding: var(--spacing-md) var(--spacing-lg);
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: 0.9rem;
+  font-weight: 500;
+  text-decoration: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: var(--shadow-sm);
+}
+
+.btn-home:hover,
+.btn-back:hover {
+  transform: translateY(-1px);
   box-shadow: var(--shadow-md);
-  position: sticky;
-  top: 0;
-  z-index: 100;
+  background: linear-gradient(135deg, var(--sn-secondary) 0%, var(--sn-primary) 100%);
 }
 
-.header-content {
-  max-width: 1200px;
-  margin: 0 auto;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
+.btn-back {
+  background: var(--sn-medium-gray);
+  color: var(--sn-text);
+  margin-bottom: var(--spacing-md);
 }
 
-.app-title {
-  margin: 0;
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-md);
-}
-
-.servicenow-logo {
-  font-size: 1.8rem;
-  font-weight: 700;
+.btn-back:hover {
+  background: var(--sn-dark-gray);
   color: var(--sn-white);
 }
 
-.game-title {
-  font-size: 1.5rem;
-  font-weight: 600;
-  color: var(--sn-white);
-  opacity: 0.9;
-}
-
-.header-nav {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-md);
+/* Game Header with Back Button */
+.game-header-with-back {
+  margin-bottom: var(--spacing-lg);
 }
 
 /* Main Content */
@@ -329,6 +334,43 @@ body {
   font-size: 2rem;
 }
 
+.complete-actions {
+  display: flex;
+  justify-content: center;
+  gap: var(--spacing-md);
+  flex-wrap: wrap;
+}
+
+/* Auto-fill Styles */
+.auto-filled {
+  background: rgba(156, 39, 176, 0.1) !important; /* Light purple background */
+  border-color: var(--color-auto-fill) !important;
+  animation: autoFillGlow 0.3s ease;
+}
+
+.auto-fill-indicator {
+  margin-left: var(--spacing-xs);
+  font-size: 0.7rem;
+  opacity: 0.7;
+}
+
+@keyframes autoFillGlow {
+  0% { 
+    background: var(--color-auto-fill); 
+    color: var(--sn-white);
+  }
+  100% { 
+    background: rgba(156, 39, 176, 0.1); 
+    color: inherit;
+  }
+}
+
+/* Avatar Icon Styles */
+.avatar-icon {
+  font-size: 0.9em;
+  line-height: 1;
+}
+
 /* Footer */
 .app-footer {
   background: var(--sn-text);
@@ -350,9 +392,14 @@ body {
     padding: var(--spacing-md);
   }
   
-  .header-content {
+  .complete-actions {
     flex-direction: column;
-    gap: var(--spacing-md);
+    align-items: center;
+  }
+  
+  .complete-actions .btn {
+    width: 100%;
+    max-width: 200px;
   }
   
   .grid-2,
