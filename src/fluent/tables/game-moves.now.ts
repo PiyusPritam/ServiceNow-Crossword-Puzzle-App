@@ -15,9 +15,13 @@ export const x_1599224_servicen_game_moves = Table({
             referenceTable: 'x_1599224_servicen_game_players',
             mandatory: true
         }),
-        question: ReferenceColumn({
-            label: 'Question',
-            referenceTable: 'x_1599224_servicen_crossword_questions',
+        question_number: IntegerColumn({
+            label: 'Question Number',
+            mandatory: true
+        }),
+        direction: StringColumn({
+            label: 'Direction',
+            maxLength: 10,
             mandatory: true
         }),
         submitted_answer: StringColumn({

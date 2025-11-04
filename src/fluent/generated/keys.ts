@@ -17,9 +17,17 @@ declare global {
                         table: 'sys_module'
                         id: 'c33ca34899ed40ea830ac3ff7e97cc2c'
                     }
+                    br_prevent_duplicate_players: {
+                        table: 'sys_script'
+                        id: '6ca758cf7eb74028a21ca83e647d75e2'
+                    }
                     'components/GameBoard.css': {
                         table: 'sys_ux_theme_asset'
                         id: 'c6d9553cbf624274975b8e7a10a6584e'
+                    }
+                    'components/GameSetup.css': {
+                        table: 'sys_ux_theme_asset'
+                        id: 'af783eb1455443b9bf5431984b38836f'
                     }
                     'crossword-category': {
                         table: 'sys_app_category'
@@ -117,6 +125,10 @@ declare global {
                         table: 'sys_module'
                         id: 'a491635dfac4437d9a4bcd2853b8b148'
                     }
+                    'src_server_prevent-duplicate-players_js': {
+                        table: 'sys_module'
+                        id: 'b9a74a2a348444368f70818937171c18'
+                    }
                     'src_server_rest-handlers_game-operations_js': {
                         table: 'sys_module'
                         id: 'f7981afc7924431e8d4627669bebc461'
@@ -160,6 +172,15 @@ declare global {
                         id: '05256d3f9219453c838fa5bf6ef5c39e'
                         key: {
                             name: 'x_1599224_servicen_game_moves'
+                        }
+                    },
+                    {
+                        table: 'sys_documentation'
+                        id: '073146c3468e40219e271771c7586ebd'
+                        key: {
+                            name: 'x_1599224_servicen_game_players'
+                            element: 'avatar_icon'
+                            language: 'en'
                         }
                     },
                     {
@@ -528,6 +549,15 @@ declare global {
                     },
                     {
                         table: 'sys_documentation'
+                        id: '43eeb5e30b4b4957a0ff40a3c68e2858'
+                        key: {
+                            name: 'x_1599224_servicen_game_moves'
+                            element: 'question_number'
+                            language: 'en'
+                        }
+                    },
+                    {
+                        table: 'sys_documentation'
                         id: '4400a81bd1ea438f9f76a91f6d3a6087'
                         key: {
                             name: 'x_1599224_servicen_game_players'
@@ -563,6 +593,7 @@ declare global {
                     {
                         table: 'sys_documentation'
                         id: '4cedb6e460644097a7be3340152df4f2'
+                        deleted: true
                         key: {
                             name: 'x_1599224_servicen_game_moves'
                             element: 'question'
@@ -827,6 +858,14 @@ declare global {
                         }
                     },
                     {
+                        table: 'sys_dictionary'
+                        id: '8b9f34565abc4ebfbd0bbab1466f7d07'
+                        key: {
+                            name: 'x_1599224_servicen_game_moves'
+                            element: 'direction'
+                        }
+                    },
+                    {
                         table: 'sys_choice'
                         id: '8c564491ae3740b886cc427007c4b14b'
                         key: {
@@ -868,6 +907,15 @@ declare global {
                             name: 'x_1599224_servicen_game_sessions'
                             element: 'difficulty'
                             value: 'normal'
+                        }
+                    },
+                    {
+                        table: 'sys_documentation'
+                        id: '94a49657bd4948c1a99f848c3ecea8d5'
+                        key: {
+                            name: 'x_1599224_servicen_game_moves'
+                            element: 'direction'
+                            language: 'en'
                         }
                     },
                     {
@@ -958,6 +1006,7 @@ declare global {
                     {
                         table: 'sys_dictionary'
                         id: 'a0cd67ad25e143f8b4eec3e327f0da2e'
+                        deleted: true
                         key: {
                             name: 'x_1599224_servicen_game_moves'
                             element: 'question'
@@ -987,6 +1036,14 @@ declare global {
                             name: 'x_1599224_servicen_crossword_questions'
                             element: 'category'
                             value: 'hr'
+                        }
+                    },
+                    {
+                        table: 'sys_dictionary'
+                        id: 'a67ed91bfb8d47ee976792e88c9f3f44'
+                        key: {
+                            name: 'x_1599224_servicen_game_moves'
+                            element: 'question_number'
                         }
                     },
                     {
@@ -1073,6 +1130,14 @@ declare global {
                             name: 'x_1599224_servicen_game_moves'
                             element: 'move_number'
                             language: 'en'
+                        }
+                    },
+                    {
+                        table: 'sys_dictionary'
+                        id: 'beb936d650694eeb86f629cfb0d8bd4c'
+                        key: {
+                            name: 'x_1599224_servicen_game_players'
+                            element: 'avatar_icon'
                         }
                     },
                     {

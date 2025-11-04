@@ -24,6 +24,10 @@ export const x_1599224_servicen_game_players = Table({
             label: 'Avatar',
             maxLength: 200
         }),
+        avatar_icon: StringColumn({
+            label: 'Avatar Icon',
+            maxLength: 10
+        }),
         score: IntegerColumn({
             label: 'Score',
             default: 0

@@ -11,6 +11,7 @@ export default function GameBoard({ game, onGameEnd, currentPlayer, setCurrentPl
   const [selectedCell, setSelectedCell] = useState(null);
   const [selectedWord, setSelectedWord] = useState(null);
   const [userAnswers, setUserAnswers] = useState({});
+  const [submittedAnswers, setSubmittedAnswers] = useState(new Set()); // Track submitted answers
   const [currentPlayerTurn, setCurrentPlayerTurn] = useState(0);
   const [players, setPlayers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -23,8 +24,13 @@ export default function GameBoard({ game, onGameEnd, currentPlayer, setCurrentPl
   const [cumulativeXP, setCumulativeXP] = useState(0);
   const [showLevelUpAnimation, setShowLevelUpAnimation] = useState(false);
   const [levelUpData, setLevelUpData] = useState(null);
+  const [gameSessionId, setGameSessionId] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [loadingProgress, setLoadingProgress] = useState('');
+  const [isLoadingSavedGame, setIsLoadingSavedGame] = useState(false);
 
   useEffect(() => {
+    console.log('🎮 GameBoard: Received game prop:', game);
     initializeGame();
   }, [game]);
 
@@ -38,51 +44,232 @@ export default function GameBoard({ game, onGameEnd, currentPlayer, setCurrentPl
   const initializeGame = async () => {
     try {
       setLoading(true);
+      setLoadingProgress('🚀 Initializing quantum matrix...');
+      console.log('🎯 GameBoard: Initializing game with config:', game);
+      
+      // Validate game object
+      if (!game || !game.players || game.players.length === 0) {
+        throw new Error('Invalid game configuration - missing players');
+      }
+      
+      // Check if this is a saved game
+      if (game.savedGameSessionId) {
+        console.log('💾 This is a saved game, loading session:', game.savedGameSessionId);
+        setIsLoadingSavedGame(true);
+        setGameSessionId(game.savedGameSessionId);
+        await loadSavedGameState(game.savedGameSessionId);
+        return;
+      }
+
+      // This is a new game
+      console.log('✨ This is a new game');
+      setIsLoadingSavedGame(false);
       
       // Carry over cumulative XP from previous games
       const startingXP = game.cumulativeXP || 0;
       const startingLevel = game.playerLevel || 1;
       
-      console.log('Initializing game - Starting XP:', startingXP, 'Starting Level:', startingLevel);
+      console.log('🎯 Initializing game - Starting XP:', startingXP, 'Starting Level:', startingLevel);
+      
+      setLoadingProgress('👥 Setting up neural operatives...');
       
       const localPlayers = game.players.map((player, i) => ({
         sys_id: 'local_player_' + i,
-        player_name: player.name,
-        avatar: player.avatar,
-        avatarIcon: player.avatarIcon,
+        player_name: player.name || `Player ${i + 1}`,
+        avatar: player.avatar || 'avatar1',
+        avatarIcon: player.avatarIcon || '👤',
         player_order: i,
-        score: 0,
+        score: player.score || 0,
         level: startingLevel,
         experience_points: startingXP,
-        coins: 100,
-        current_streak: 0,
-        best_streak: 0,
-        correct_answers: 0,
-        incorrect_answers: 0
+        coins: player.coins || 100,
+        current_streak: player.current_streak || 0,
+        best_streak: player.best_streak || 0,
+        correct_answers: player.correct_answers || 0,
+        incorrect_answers: player.incorrect_answers || 0
       }));
+      
+      console.log('👥 GameBoard: Initialized players:', localPlayers);
       
       setPlayers(localPlayers);
       setCurrentPlayer(localPlayers[0]);
       setCurrentLevel(startingLevel);
       setCumulativeXP(startingXP);
       
+      setLoadingProgress('🧩 Generating crossword matrix...');
+      
+      // Generate crossword for new game
       const gridData = questionService.generateCrosswordGrid(startingLevel);
       setCrosswordData(gridData);
       
       const difficulty = gridData.difficulty || 'easy';
-      setMessage(`🎮 Level ${startingLevel} crossword loaded! (${difficulty.toUpperCase()}) - XP: ${startingXP}`);
+      setMessage(`🎮 Level ${startingLevel} quantum matrix loaded! (${difficulty.toUpperCase()}) - XP: ${startingXP}`);
       setTimeout(() => setMessage(''), 3000);
 
       setLoading(false);
     } catch (error) {
-      console.error('Error initializing game:', error);
+      console.error('❌ Error initializing game:', error);
       setMessage('Error initializing game: ' + error.message);
       setLoading(false);
+      
+      // Show error for 3 seconds then go back to setup
+      setTimeout(() => {
+        onBackToSetup();
+      }, 3000);
+    }
+  };
+
+  const loadSavedGameState = async (sessionId) => {
+    try {
+      console.log('💾 GameBoard: Loading saved game state for session:', sessionId);
+      
+      setLoadingProgress('📡 Connecting to quantum database...');
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      // Load game session data
+      setLoadingProgress('🔍 Retrieving session data...');
+      const session = await gameService.getGameSession(sessionId);
+      console.log('📊 GameBoard: Loaded session:', session);
+      
+      if (!session) {
+        throw new Error('Game session not found');
+      }
+      
+      setLoadingProgress('👥 Loading player data...');
+      const sessionPlayers = await gameService.getGamePlayers(sessionId);
+      console.log('👥 GameBoard: Loaded players:', sessionPlayers);
+      
+      if (!sessionPlayers || sessionPlayers.length === 0) {
+        throw new Error('No players found for this saved game');
+      }
+      
+      setLoadingProgress('🎯 Loading game moves...');
+      const gameMoves = await gameService.getGameMoves(sessionId);
+      console.log('🎯 GameBoard: Loaded moves:', gameMoves);
+      
+      setLoadingProgress('🧩 Reconstructing crossword matrix...');
+      
+      // Restore crossword grid from saved data
+      let gridData;
+      if (session.grid_data) {
+        try {
+          gridData = JSON.parse(session.grid_data);
+          console.log('🧩 GameBoard: Restored grid data from save:', gridData);
+          setCrosswordData(gridData);
+        } catch (parseError) {
+          console.error('❌ Error parsing saved grid data:', parseError);
+          throw new Error('Corrupted game data - unable to parse crossword grid');
+        }
+      } else {
+        // Generate new grid if no saved data (fallback)
+        console.log('⚠️ GameBoard: No saved grid data, generating new crossword');
+        gridData = questionService.generateCrosswordGrid(parseInt(sessionPlayers[0].level) || 1);
+        setCrosswordData(gridData);
+      }
+      
+      setLoadingProgress('👤 Processing neural operatives...');
+      
+      // Filter unique players to avoid duplicates
+      const uniquePlayers = [];
+      const seenPlayers = new Set();
+      
+      for (const p of sessionPlayers) {
+        const playerKey = `${p.player_name}_${p.player_order}`;
+        if (!seenPlayers.has(playerKey)) {
+          seenPlayers.add(playerKey);
+          uniquePlayers.push(p);
+        }
+      }
+      
+      // Helper function to get avatar icon from avatar type
+      const getAvatarIcon = (avatarType) => {
+        const avatarIcons = {
+          'avatar1': '👨‍💻',
+          'avatar2': '👩‍💼',
+          'avatar3': '📊',
+          'avatar4': '⚙️',
+          'avatar5': '🎨',
+          'avatar6': '👔',
+          'avatar7': '🔧',
+          'avatar8': '🧠'
+        };
+        return avatarIcons[avatarType] || '👤';
+      };
+      
+      // Restore player data
+      const restoredPlayers = uniquePlayers.map(p => ({
+        sys_id: p.sys_id,
+        player_name: p.player_name,
+        avatar: p.avatar || 'avatar1',
+        avatarIcon: getAvatarIcon(p.avatar || 'avatar1'),
+        player_order: parseInt(p.player_order) || 0,
+        score: parseInt(p.score) || 0,
+        level: parseInt(p.level) || 1,
+        experience_points: parseInt(p.experience_points) || 0,
+        coins: parseInt(p.coins) || 100,
+        current_streak: parseInt(p.current_streak) || 0,
+        best_streak: parseInt(p.best_streak) || 0,
+        correct_answers: parseInt(p.correct_answers) || 0,
+        incorrect_answers: parseInt(p.incorrect_answers) || 0
+      }));
+      
+      console.log('✅ GameBoard: Restored players:', restoredPlayers);
+      
+      if (restoredPlayers.length === 0) {
+        throw new Error('No valid players found after processing saved data');
+      }
+      
+      setPlayers(restoredPlayers);
+      setCurrentPlayer(restoredPlayers[0]);
+      setCurrentPlayerTurn(parseInt(session.current_player_turn) || 0);
+      setCurrentLevel(parseInt(restoredPlayers[0].level) || 1);
+      setCumulativeXP(parseInt(restoredPlayers[0].experience_points) || 0);
+      
+      setLoadingProgress('🎯 Restoring game progress...');
+      
+      // Restore submitted answers from moves
+      const submitted = new Set();
+      const answers = {};
+      
+      if (gameMoves && gameMoves.length > 0) {
+        gameMoves.forEach(move => {
+          const wordKey = `${move.question_number}-${move.direction}`;
+          submitted.add(wordKey);
+          answers[wordKey] = move.submitted_answer;
+          console.log('🎯 GameBoard: Restored move:', wordKey, '=', move.submitted_answer);
+        });
+      }
+      
+      setSubmittedAnswers(submitted);
+      setUserAnswers(answers);
+      
+      console.log('✅ GameBoard: Restored submitted answers:', submitted);
+      console.log('✅ GameBoard: Restored user answers:', answers);
+      
+      setLoadingProgress('🎉 Game state fully restored!');
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      setMessage('🔄 Quantum matrix successfully reconstructed!');
+      setTimeout(() => setMessage(''), 3000);
+      
+      setLoading(false);
+    } catch (error) {
+      console.error('❌ Error loading saved game:', error);
+      setLoadingProgress(`❌ Matrix error: ${error.message}`);
+      
+      // Show error for 3 seconds, then go back to setup
+      setTimeout(() => {
+        setLoading(false);
+        setMessage('Failed to load saved game. Returning to setup...');
+        setTimeout(() => {
+          onBackToSetup();
+        }, 2000);
+      }, 3000);
     }
   };
 
   const handleCellClick = useCallback((row, col) => {
-    if (!crosswordData || gameComplete || showLevelUpAnimation) return;
+    if (!crosswordData || showLevelUpAnimation) return;
 
     const cell = crosswordData.grid[row][col];
     if (!cell || cell === '') return;
@@ -108,10 +295,43 @@ export default function GameBoard({ game, onGameEnd, currentPlayer, setCurrentPl
 
     const newSelectedWord = acrossWord || downWord;
     setSelectedWord(newSelectedWord);
-  }, [crosswordData, gameComplete, showLevelUpAnimation]);
+  }, [crosswordData, showLevelUpAnimation]);
+
+  // Helper function to check if a cell position is part of a submitted word
+  const isCellSubmitted = (row, col) => {
+    if (!crosswordData) return false;
+    
+    const allClues = [...(crosswordData.clues.across || []), ...(crosswordData.clues.down || [])];
+    
+    return allClues.some(clue => {
+      const wordKey = `${clue.number}-${clue.direction}`;
+      if (!submittedAnswers.has(wordKey)) return false;
+      
+      if (clue.direction === 'across') {
+        return row === clue.startRow && 
+               col >= clue.startCol && 
+               col < clue.startCol + clue.length;
+      } else {
+        return col === clue.startCol && 
+               row >= clue.startRow && 
+               row < clue.startRow + clue.length;
+      }
+    });
+  };
 
   const handleKeyPress = useCallback((event) => {
-    if (!selectedCell || !selectedWord || gameComplete || showLevelUpAnimation) return;
+    if (!selectedCell || !selectedWord || showLevelUpAnimation) return;
+
+    const wordKey = `${selectedWord.number}-${selectedWord.direction}`;
+    
+    // Prevent input if answer already submitted
+    if (submittedAnswers.has(wordKey)) {
+      if (event.key === 'Enter') {
+        setMessage('❌ This answer has already been submitted and cannot be changed.');
+        setTimeout(() => setMessage(''), 2000);
+      }
+      return;
+    }
 
     const { key } = event;
 
@@ -128,7 +348,6 @@ export default function GameBoard({ game, onGameEnd, currentPlayer, setCurrentPl
 
     if (key === 'Backspace') {
       const newAnswers = { ...userAnswers };
-      const wordKey = `${selectedWord.number}-${selectedWord.direction}`;
       
       if (newAnswers[wordKey]) {
         newAnswers[wordKey] = newAnswers[wordKey].slice(0, -1);
@@ -146,7 +365,6 @@ export default function GameBoard({ game, onGameEnd, currentPlayer, setCurrentPl
     // Handle letter input
     if (/^[A-Za-z0-9]$/.test(key)) {
       const letter = key.toUpperCase();
-      const wordKey = `${selectedWord.number}-${selectedWord.direction}`;
       
       const newAnswers = { ...userAnswers };
       const currentAnswer = newAnswers[wordKey] || '';
@@ -155,16 +373,25 @@ export default function GameBoard({ game, onGameEnd, currentPlayer, setCurrentPl
         newAnswers[wordKey] = currentAnswer + letter;
         setUserAnswers(newAnswers);
 
+        // Move cursor to next cell only if it's not submitted and within word bounds
         if (currentAnswer.length + 1 < selectedWord.length) {
+          let nextRow = selectedCell.row;
+          let nextCol = selectedCell.col;
+          
           if (selectedWord.direction === 'across') {
-            setSelectedCell({ row: selectedCell.row, col: selectedCell.col + 1 });
+            nextCol = selectedCell.col + 1;
           } else {
-            setSelectedCell({ row: selectedCell.row + 1, col: selectedCell.col });
+            nextRow = selectedCell.row + 1;
+          }
+          
+          // Only move if the next cell is not submitted
+          if (!isCellSubmitted(nextRow, nextCol)) {
+            setSelectedCell({ row: nextRow, col: nextCol });
           }
         }
       }
     }
-  }, [selectedCell, selectedWord, userAnswers, gameComplete, showLevelUpAnimation]);
+  }, [selectedCell, selectedWord, userAnswers, showLevelUpAnimation, submittedAnswers, crosswordData]);
 
   const moveToNextWord = () => {
     if (!crosswordData) return;
@@ -203,7 +430,7 @@ export default function GameBoard({ game, onGameEnd, currentPlayer, setCurrentPl
     }, 150);
   };
 
-  // FIXED: Check for level up immediately when XP increases
+  // Check for level up immediately when XP increases
   const checkForLevelUp = (newTotalXP) => {
     console.log('=== CHECKING FOR LEVEL UP ===');
     console.log('Current Level:', currentLevel);
@@ -212,7 +439,6 @@ export default function GameBoard({ game, onGameEnd, currentPlayer, setCurrentPl
     const levelInfo = questionService.calculateLevel(newTotalXP);
     console.log('Calculated Level Info:', levelInfo);
     
-    // FIXED: Simply check if calculated level is higher than current level
     if (levelInfo.level > currentLevel) {
       console.log('LEVEL UP DETECTED!', currentLevel, '->', levelInfo.level);
       
@@ -255,6 +481,8 @@ export default function GameBoard({ game, onGameEnd, currentPlayer, setCurrentPl
 
   const checkGameCompletion = (updatedAnswers, newTotalXP) => {
     if (questionService.isGameComplete(updatedAnswers, crosswordData.clues)) {
+      console.log('GameBoard: Game complete! Showing stats...');
+      
       // Calculate completion stats
       const totalQuestions = [...(crosswordData.clues.across || []), ...(crosswordData.clues.down || [])].length;
       const correctAnswers = currentPlayer.correct_answers || 0;
@@ -274,16 +502,18 @@ export default function GameBoard({ game, onGameEnd, currentPlayer, setCurrentPl
         totalCoins,
         currentXP: newTotalXP,
         levelInfo,
-        currentLevel: currentLevel, // Use the current level from state
+        currentLevel: currentLevel,
         currentDifficulty: crosswordData.difficulty || 'easy'
       };
+      
+      console.log('GameBoard: Completion stats:', stats);
       
       setCompletionStats(stats);
       setGameComplete(true);
       setSelectedCell(null);
       setSelectedWord(null);
       
-      setMessage('🎊 Crossword Complete! Ready for next challenge!');
+      setMessage('🎊 All Answers Submitted! Check out your stats!');
     }
   };
 
@@ -292,6 +522,13 @@ export default function GameBoard({ game, onGameEnd, currentPlayer, setCurrentPl
 
     const wordKey = `${selectedWord.number}-${selectedWord.direction}`;
     const userAnswer = userAnswers[wordKey] || '';
+
+    // Check if answer already submitted
+    if (submittedAnswers.has(wordKey)) {
+      setMessage('❌ This answer has already been submitted and cannot be changed.');
+      setTimeout(() => setMessage(''), 2000);
+      return;
+    }
 
     if (!userAnswer.trim()) {
       setMessage('Please enter an answer before submitting.');
@@ -312,6 +549,9 @@ export default function GameBoard({ game, onGameEnd, currentPlayer, setCurrentPl
       console.log('Answer correct:', isCorrect);
       console.log('Points earned:', points);
       console.log('XP earned:', experience);
+      
+      // Mark answer as submitted
+      setSubmittedAnswers(prev => new Set([...prev, wordKey]));
       
       // Calculate new cumulative XP
       const newTotalXP = cumulativeXP + experience;
@@ -338,10 +578,42 @@ export default function GameBoard({ game, onGameEnd, currentPlayer, setCurrentPl
       );
       setPlayers(updatedPlayers);
 
+      // Save move to database if game is saved
+      if (gameSessionId) {
+        try {
+          await gameService.submitAnswer({
+            game_session: gameSessionId,
+            player: currentPlayer.sys_id,
+            question_number: selectedWord.number,
+            direction: selectedWord.direction,
+            submitted_answer: userAnswer,
+            is_correct: isCorrect,
+            points_earned: points,
+            coins_earned: earnedCoins,
+            experience_earned: experience,
+            move_number: submittedAnswers.size + 1
+          });
+
+          // Also update player in database
+          await gameService.updatePlayer(currentPlayer.sys_id, {
+            score: updatedPlayer.score,
+            level: updatedPlayer.level,
+            experience_points: updatedPlayer.experience_points,
+            coins: updatedPlayer.coins,
+            correct_answers: updatedPlayer.correct_answers,
+            incorrect_answers: updatedPlayer.incorrect_answers,
+            current_streak: updatedPlayer.current_streak,
+            best_streak: updatedPlayer.best_streak
+          });
+        } catch (error) {
+          console.error('Error saving move:', error);
+        }
+      }
+
       if (isCorrect) {
         setMessage(`🎉 Correct! +${points} points, +${experience} XP, +${earnedCoins} coins`);
         
-        // FIXED: Check for level up immediately after earning XP
+        // Check for level up immediately after earning XP
         const leveledUp = checkForLevelUp(newTotalXP);
         
         if (!leveledUp) {
@@ -378,6 +650,13 @@ export default function GameBoard({ game, onGameEnd, currentPlayer, setCurrentPl
             
             setSelectedCell(null);
             setSelectedWord(null);
+            
+            // Check for completion after auto-fill
+            const newAnswers = { ...userAnswers };
+            setTimeout(() => {
+              checkGameCompletion(newAnswers, newTotalXP);
+            }, 500);
+            
           }, selectedWord.answer.length * 150 + 1000);
           
         }, 1500);
@@ -397,25 +676,16 @@ export default function GameBoard({ game, onGameEnd, currentPlayer, setCurrentPl
   const startNextCrossword = (level, totalXP) => {
     console.log('Starting next crossword - Level:', level, 'Total XP:', totalXP);
     
-    const gameConfig = {
-      ...game,
-      playerLevel: level,
-      cumulativeXP: totalXP,
-      players: players.map(p => ({
-        ...p,
-        level: level,
-        experience_points: totalXP
-      }))
-    };
-    
     // Reset game state for next crossword
     setGameComplete(false);
     setCompletionStats(null);
     setUserAnswers({});
+    setSubmittedAnswers(new Set()); // Reset submitted answers
     setAutoFilledWords(new Set());
     setCurrentPlayerTurn(0);
     setSelectedCell(null);
     setSelectedWord(null);
+    setGameSessionId(null); // Clear saved game session
     
     // Generate new crossword for the level
     setLoading(true);
@@ -431,11 +701,137 @@ export default function GameBoard({ game, onGameEnd, currentPlayer, setCurrentPl
     }, 500);
   };
 
+  const saveGame = async (gameName) => {
+    if (saving) return; // Prevent multiple saves
+    
+    setSaving(true);
+    try {
+      console.log('GameBoard: Saving game with name:', gameName);
+      
+      if (!crosswordData) {
+        throw new Error('No crossword data to save');
+      }
+
+      const sessionData = {
+        session_name: gameName,
+        difficulty: crosswordData.difficulty || 'easy',
+        num_players: players.length,
+        questions_per_player: game.questionsPerPlayer || 6,
+        status: gameComplete ? 'completed' : 'active',
+        current_player_turn: currentPlayerTurn,
+        created_by: getCurrentUserId(),
+        grid_data: JSON.stringify(crosswordData)
+      };
+
+      console.log('GameBoard: Session data to save:', sessionData);
+
+      let sessionId = gameSessionId;
+      
+      if (!sessionId) {
+        console.log('GameBoard: Creating new game session...');
+        // Create new game session
+        const session = await gameService.createGameSession(sessionData);
+        sessionId = session.sys_id;
+        setGameSessionId(sessionId);
+        console.log('GameBoard: Created session with ID:', sessionId);
+        
+        // Save all players (prevent duplicates by checking if they already exist)
+        for (const [index, player] of players.entries()) {
+          console.log(`GameBoard: Saving player ${index + 1}:`, player);
+          
+          // Only create new player if it doesn't have a real sys_id (i.e., it's a local player)
+          if (!player.sys_id || player.sys_id.startsWith('local_player_')) {
+            const playerData = {
+              user: getCurrentUserId(),
+              player_name: player.player_name,
+              avatar: player.avatar,
+              avatar_icon: player.avatarIcon,
+              score: player.score || 0,
+              level: player.level || 1,
+              experience_points: player.experience_points || 0,
+              coins: player.coins || 100,
+              correct_answers: player.correct_answers || 0,
+              incorrect_answers: player.incorrect_answers || 0,
+              current_streak: player.current_streak || 0,
+              best_streak: player.best_streak || 0,
+              player_order: player.player_order || index
+            };
+            
+            const savedPlayer = await gameService.addPlayerToGame(sessionId, playerData);
+            
+            // Update the local player object with the real sys_id
+            const updatedPlayers = [...players];
+            updatedPlayers[index] = {
+              ...updatedPlayers[index],
+              sys_id: savedPlayer.sys_id
+            };
+            setPlayers(updatedPlayers);
+            
+            if (index === 0) {
+              setCurrentPlayer({...currentPlayer, sys_id: savedPlayer.sys_id});
+            }
+          }
+        }
+        
+        console.log('GameBoard: All players saved successfully');
+      } else {
+        console.log('GameBoard: Updating existing game session...');
+        // Update existing session
+        await gameService.updateGameSession(sessionId, sessionData);
+        
+        // Update existing players
+        for (const player of players) {
+          if (player.sys_id && !player.sys_id.startsWith('local_player_')) {
+            console.log('GameBoard: Updating existing player:', player.sys_id);
+            await gameService.updatePlayer(player.sys_id, {
+              score: player.score,
+              level: player.level,
+              experience_points: player.experience_points,
+              coins: player.coins,
+              correct_answers: player.correct_answers,
+              incorrect_answers: player.incorrect_answers,
+              current_streak: player.current_streak,
+              best_streak: player.best_streak
+            });
+          }
+        }
+      }
+
+      setMessage(`💾 Quantum matrix archived as "${gameName}"!`);
+      setTimeout(() => setMessage(''), 3000);
+      
+      console.log('GameBoard: Game saved successfully with session ID:', sessionId);
+      return sessionId;
+    } catch (error) {
+      console.error('GameBoard: Error saving game:', error);
+      setMessage('❌ Matrix archival failed: ' + error.message);
+      setTimeout(() => setMessage(''), 5000);
+      throw error;
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleSaveProgress = async () => {
+    try {
+      const defaultName = `QuantumMatrix_L${currentLevel}_${new Date().toLocaleDateString().replace(/\//g, '-')}_${Date.now().toString().slice(-4)}`;
+      await saveGame(defaultName);
+    } catch (error) {
+      console.error('Error saving progress:', error);
+    }
+  };
+
+  // End game without save dialog - go straight back to setup
+  const handleEndGame = () => {
+    console.log('GameBoard: Ending game, going back to setup');
+    onGameEnd();
+  };
+
   const usePowerUp = async (powerUp) => {
     const cost = { hint: 20, retry: 40 };
 
     if ((currentPlayer.coins || 0) < cost[powerUp]) {
-      setMessage(`💰 Not enough coins! Need ${cost[powerUp]} coins.`);
+      setMessage(`💰 Insufficient quantum credits! Need ${cost[powerUp]} coins.`);
       return;
     }
 
@@ -444,6 +840,13 @@ export default function GameBoard({ game, onGameEnd, currentPlayer, setCurrentPl
         case 'hint':
           if (selectedWord) {
             const wordKey = `${selectedWord.number}-${selectedWord.direction}`;
+            
+            // Don't allow hints for submitted answers
+            if (submittedAnswers.has(wordKey)) {
+              setMessage('❌ Cannot use quantum hints on archived answers.');
+              return;
+            }
+            
             const currentAnswer = userAnswers[wordKey] || '';
             const nextLetter = selectedWord.answer[currentAnswer.length];
             
@@ -451,7 +854,7 @@ export default function GameBoard({ game, onGameEnd, currentPlayer, setCurrentPl
               const newAnswers = { ...userAnswers };
               newAnswers[wordKey] = currentAnswer + nextLetter;
               setUserAnswers(newAnswers);
-              setMessage(`💡 Hint used! Next letter: ${nextLetter}`);
+              setMessage(`💡 Quantum hint activated! Next neural pattern: ${nextLetter}`);
             }
           }
           break;
@@ -459,6 +862,13 @@ export default function GameBoard({ game, onGameEnd, currentPlayer, setCurrentPl
         case 'retry':
           if (selectedWord) {
             const wordKey = `${selectedWord.number}-${selectedWord.direction}`;
+            
+            // Don't allow retry for submitted answers
+            if (submittedAnswers.has(wordKey)) {
+              setMessage('❌ Cannot reset archived neural patterns.');
+              return;
+            }
+            
             const newAnswers = { ...userAnswers };
             newAnswers[wordKey] = '';
             setUserAnswers(newAnswers);
@@ -469,7 +879,7 @@ export default function GameBoard({ game, onGameEnd, currentPlayer, setCurrentPl
               return newSet;
             });
             
-            setMessage('🔄 Answer cleared! Try again.');
+            setMessage('🔄 Neural pattern reset! Matrix ready for new input.');
           }
           break;
       }
@@ -527,23 +937,83 @@ export default function GameBoard({ game, onGameEnd, currentPlayer, setCurrentPl
     return autoFilledWords.has(wordKey);
   };
 
+  const isWordSubmitted = (clue) => {
+    const wordKey = `${clue.number}-${clue.direction}`;
+    return submittedAnswers.has(wordKey);
+  };
+
   useEffect(() => {
     document.addEventListener('keydown', handleKeyPress);
     return () => document.removeEventListener('keydown', handleKeyPress);
   }, [handleKeyPress]);
 
+  // Show enhanced loading screen with progress for saved games
   if (loading) {
     return (
       <div className="game-loading">
         <div className="loading-spinner"></div>
-        <p>Loading Level {currentLevel} ServiceNow crossword...</p>
-        <p>XP: {cumulativeXP}</p>
+        <h2 style={{
+          background: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)',
+          WebkitBackgroundClip: 'text',
+          WebkitTextFillColor: 'transparent',
+          backgroundClip: 'text',
+          margin: '2rem 0 1rem 0'
+        }}>
+          {isLoadingSavedGame ? '🌌 QUANTUM RECONSTRUCTION 🌌' : '🎮 MATRIX INITIALIZATION 🎮'}
+        </h2>
+        
+        {loadingProgress && (
+          <div style={{
+            fontSize: '1.2rem',
+            fontWeight: '600',
+            marginBottom: '2rem',
+            color: '#4facfe'
+          }}>
+            {loadingProgress}
+          </div>
+        )}
+        
+        <p>
+          {isLoadingSavedGame 
+            ? '🔄 Reconstructing saved quantum matrix...' 
+            : `Loading Level ${currentLevel} ServiceNow quantum crossword...`
+          }
+        </p>
+        <p style={{color: '#00ff88'}}>XP: {cumulativeXP}</p>
+        
+        <div style={{
+          width: '100%',
+          maxWidth: '400px',
+          height: '8px',
+          background: 'rgba(255, 255, 255, 0.1)',
+          borderRadius: '20px',
+          overflow: 'hidden',
+          marginTop: '2rem'
+        }}>
+          <div style={{
+            height: '100%',
+            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+            borderRadius: '20px',
+            animation: 'energyFlow 2s ease-in-out infinite',
+            width: '100%'
+          }}></div>
+        </div>
       </div>
     );
   }
 
   if (!crosswordData) {
-    return <div className="error-message">Failed to load crossword data.</div>;
+    return (
+      <div className="error-message">
+        <h2 style={{color: '#ff6b6b', marginBottom: '1rem'}}>❌ Matrix Reconstruction Failed</h2>
+        <p>Unable to load quantum crossword matrix.</p>
+        {isLoadingSavedGame && <p>The saved game data may be corrupted or incomplete.</p>}
+        <br />
+        <button className="btn btn-primary" onClick={onBackToSetup} style={{marginTop: '10px'}}>
+          ← Return to Quantum Hub
+        </button>
+      </div>
+    );
   }
 
   // Level Up Animation Screen
@@ -553,30 +1023,31 @@ export default function GameBoard({ game, onGameEnd, currentPlayer, setCurrentPl
         <div className="level-up-container">
           <div className="level-up-animation">
             <div className="level-up-icon">🚀</div>
-            <h1 className="level-up-title">LEVEL UP!</h1>
+            <h1 className="level-up-title">NEURAL EVOLUTION!</h1>
             <div className="level-transition">
               <div className="old-level">Level {levelUpData.oldLevel}</div>
               <div className="level-arrow">→</div>
               <div className="new-level">Level {levelUpData.newLevel}</div>
             </div>
-            <p className="level-up-message">Congratulations! You've reached Level {levelUpData.newLevel}!</p>
-            <div className="level-up-xp">Total XP: {levelUpData.totalXP}</div>
+            <p className="level-up-message">Congratulations! Your neural matrix has evolved to Level {levelUpData.newLevel}!</p>
+            <div className="level-up-xp">Total Neural Energy: {levelUpData.totalXP} XP</div>
           </div>
         </div>
       </div>
     );
   }
 
-  // Game Completion Screen
+  // Game Completion Screen - Shows stats when all answers are submitted
   if (gameComplete && completionStats) {
     const currentLevelInfo = questionService.calculateLevel(completionStats.currentXP);
-    const buttonText = `🎮 Continue Level ${currentLevel}`;
+    const buttonText = `🎮 Continue Level ${currentLevel} Matrix`;
       
     return (
       <div className="game-complete-screen">
         <div className="completion-container">
           <div className="completion-header">
-            <h1>🎊 Crossword Complete!</h1>
+            <h1>🎊 Quantum Matrix Completed!</h1>
+            <p>Neural pattern analysis complete - reviewing performance metrics</p>
           </div>
 
           <div className="completion-stats">
@@ -584,7 +1055,7 @@ export default function GameBoard({ game, onGameEnd, currentPlayer, setCurrentPl
               <div className="stat-card score-card">
                 <div className="stat-icon">⭐</div>
                 <div className="stat-info">
-                  <h3>Total Score</h3>
+                  <h3>Neural Score</h3>
                   <div className="stat-value">{completionStats.totalScore}</div>
                 </div>
               </div>
@@ -592,7 +1063,7 @@ export default function GameBoard({ game, onGameEnd, currentPlayer, setCurrentPl
               <div className="stat-card coins-card">
                 <div className="stat-icon">🪙</div>
                 <div className="stat-info">
-                  <h3>Coins Earned</h3>
+                  <h3>Quantum Credits</h3>
                   <div className="stat-value">{completionStats.totalCoins}</div>
                 </div>
               </div>
@@ -600,7 +1071,7 @@ export default function GameBoard({ game, onGameEnd, currentPlayer, setCurrentPl
               <div className="stat-card xp-card">
                 <div className="stat-icon">🏆</div>
                 <div className="stat-info">
-                  <h3>Total XP</h3>
+                  <h3>Neural Energy</h3>
                   <div className="stat-value">{completionStats.currentXP} XP</div>
                 </div>
               </div>
@@ -608,32 +1079,70 @@ export default function GameBoard({ game, onGameEnd, currentPlayer, setCurrentPl
               <div className="stat-card level-card">
                 <div className="stat-icon">📊</div>
                 <div className="stat-info">
-                  <h3>Current Level</h3>
+                  <h3>Evolution Level</h3>
                   <div className="stat-value">Level {currentLevel}</div>
                 </div>
               </div>
             </div>
 
             <div className="accuracy-stats">
-              <h3>Performance Summary</h3>
+              <h3>🎯 Neural Performance Analysis</h3>
               <div className="accuracy-grid">
                 <div className="accuracy-item correct">
                   <span className="accuracy-icon">✅</span>
-                  <span>Correct: {completionStats.correctAnswers}</span>
+                  <span>Correct Patterns: {completionStats.correctAnswers}</span>
                 </div>
                 <div className="accuracy-item incorrect">
                   <span className="accuracy-icon">❌</span>
-                  <span>Incorrect: {completionStats.incorrectAnswers}</span>
+                  <span>Failed Patterns: {completionStats.incorrectAnswers}</span>
                 </div>
                 <div className="accuracy-item difficulty">
                   <span className="accuracy-icon">🎯</span>
-                  <span>Difficulty: {completionStats.currentDifficulty.toUpperCase()}</span>
+                  <span>Matrix Level: {completionStats.currentDifficulty.toUpperCase()}</span>
+                </div>
+                <div className="accuracy-item streak">
+                  <span className="accuracy-icon">🔥</span>
+                  <span>Max Streak: {currentPlayer?.best_streak || 0}</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="detailed-stats">
+              <h3>📊 Detailed Neural Metrics</h3>
+              <div className="detailed-stats-grid">
+                <div className="detail-stat">
+                  <span className="detail-label">Patterns Processed:</span>
+                  <span className="detail-value">{completionStats.totalQuestions}</span>
+                </div>
+                <div className="detail-stat">
+                  <span className="detail-label">Success Rate:</span>
+                  <span className="detail-value">
+                    {completionStats.totalQuestions > 0 
+                      ? Math.round((completionStats.correctAnswers / completionStats.totalQuestions) * 100)
+                      : 0}%
+                  </span>
+                </div>
+                <div className="detail-stat">
+                  <span className="detail-label">Score per Pattern:</span>
+                  <span className="detail-value">
+                    {completionStats.totalQuestions > 0 
+                      ? Math.round(completionStats.totalScore / completionStats.totalQuestions)
+                      : 0} pts
+                  </span>
+                </div>
+                <div className="detail-stat">
+                  <span className="detail-label">Credits per Pattern:</span>
+                  <span className="detail-value">
+                    {completionStats.totalQuestions > 0 
+                      ? Math.round(completionStats.totalCoins / completionStats.totalQuestions)
+                      : 0} credits
+                  </span>
                 </div>
               </div>
             </div>
 
             <div className="progress-bar-container">
-              <h4>Progress to Level {currentLevel + 1}</h4>
+              <h4>🚀 Evolution Progress to Level {currentLevel + 1}</h4>
               <div className="progress-bar">
                 <div 
                   className="progress-fill"
@@ -643,8 +1152,8 @@ export default function GameBoard({ game, onGameEnd, currentPlayer, setCurrentPl
                 ></div>
               </div>
               <div className="progress-text">
-                {currentLevelInfo.xpProgress} / {currentLevelInfo.xpNeeded} XP 
-                {currentLevel >= 10 ? ' (MAX LEVEL!)' : ` to Level ${currentLevel + 1}`}
+                {currentLevelInfo.xpProgress} / {currentLevelInfo.xpNeeded} Neural Energy 
+                {currentLevel >= 10 ? ' (MAXIMUM EVOLUTION ACHIEVED!)' : ` to Level ${currentLevel + 1}`}
               </div>
             </div>
           </div>
@@ -657,10 +1166,17 @@ export default function GameBoard({ game, onGameEnd, currentPlayer, setCurrentPl
               {buttonText}
             </button>
             <button 
+              className="btn btn-info btn-lg"
+              onClick={handleSaveProgress}
+              disabled={saving}
+            >
+              {saving ? '💾 Archiving...' : '💾 Archive Matrix'}
+            </button>
+            <button 
               className="btn btn-secondary"
               onClick={onBackToSetup}
             >
-              🏠 Back to Setup
+              🏠 Return to Quantum Hub
             </button>
           </div>
         </div>
@@ -678,22 +1194,22 @@ export default function GameBoard({ game, onGameEnd, currentPlayer, setCurrentPl
         <button 
           className="btn-back"
           onClick={onBackToSetup}
-          title="Back to Game Setup"
+          title="Return to Quantum Hub"
         >
-          ← Back to Setup
+          ← Quantum Hub
         </button>
         
         <div className="game-header-compact">
           <div className="header-left">
-            <h2 className="game-title">ServiceNow Crossword - Level {currentLevel}</h2>
+            <h2 className="game-title">🌌 ServiceNow Quantum Matrix - Level {currentLevel} 🌌</h2>
             <div className="game-meta-horizontal">
               <span className={`difficulty-badge difficulty-${crosswordData.difficulty || 'easy'}`}>
-                {(crosswordData.difficulty || 'easy').toUpperCase()}
+                {(crosswordData.difficulty || 'easy').toUpperCase()} MATRIX
               </span>
-              <span className="meta-item">XP: {cumulativeXP}</span>
-              <span className="meta-item">Player: {currentPlayer?.player_name}</span>
+              <span className="meta-item">⚡ Neural Energy: {cumulativeXP}</span>
+              <span className="meta-item">🤖 Operative: {currentPlayer?.player_name}</span>
               {game.roomCode && (
-                <span className="meta-item">Room: {game.roomCode}</span>
+                <span className="meta-item">🌐 Quantum Room: {game.roomCode}</span>
               )}
             </div>
           </div>
@@ -734,19 +1250,11 @@ export default function GameBoard({ game, onGameEnd, currentPlayer, setCurrentPl
       )}
 
       {/* TESTING: XP Debug Info */}
-      <div className="xp-debug" style={{
-        background: '#f0f8ff',
-        border: '2px solid #4CAF50',
-        padding: '10px',
-        margin: '10px 0',
-        borderRadius: '8px',
-        fontFamily: 'monospace',
-        fontSize: '0.9rem'
-      }}>
-        <strong>XP DEBUG:</strong> Total XP: {cumulativeXP} | Current Level: {currentLevel} | 
+      <div className="xp-debug">
+        <strong>🧠 NEURAL DEBUG:</strong> Total XP: {cumulativeXP} | Current Level: {currentLevel} | 
         Next Level XP: {levelInfo.xpForNextLevel} | Progress: {levelInfo.xpProgress}/{levelInfo.xpNeeded}
         {levelInfo.level > currentLevel && (
-          <span style={{color: 'red', fontWeight: 'bold'}}> → LEVEL UP AVAILABLE!</span>
+          <span style={{color: '#00ff88', fontWeight: 'bold'}}> → EVOLUTION READY!</span>
         )}
       </div>
 
@@ -788,12 +1296,29 @@ export default function GameBoard({ game, onGameEnd, currentPlayer, setCurrentPl
                   return false;
                 });
 
+                const isSubmitted = crosswordData.clues.across.concat(crosswordData.clues.down).some(clue => {
+                  if (isWordSubmitted(clue)) {
+                    if (clue.direction === 'across') {
+                      return rowIndex === clue.startRow && 
+                             colIndex >= clue.startCol && 
+                             colIndex < clue.startCol + clue.length;
+                    } else {
+                      return colIndex === clue.startCol && 
+                             rowIndex >= clue.startRow && 
+                             rowIndex < clue.startRow + clue.length;
+                    }
+                  }
+                  return false;
+                });
+
                 return (
                   <div 
                     key={`${rowIndex}-${colIndex}`}
                     className={`grid-cell ${isEmpty ? 'empty' : 'filled'} ${isWordCell ? 'word-cell' : ''} ${
                       isSelected ? 'selected' : ''
-                    } ${isInSelectedWord ? 'highlighted' : ''} ${isAutoFilled ? 'auto-filled' : ''}`}
+                    } ${isInSelectedWord ? 'highlighted' : ''} ${isAutoFilled ? 'auto-filled' : ''} ${
+                      isSubmitted ? 'submitted' : ''
+                    }`}
                     onClick={() => handleCellClick(rowIndex, colIndex)}
                   >
                     <span className="cell-content">
@@ -811,18 +1336,21 @@ export default function GameBoard({ game, onGameEnd, currentPlayer, setCurrentPl
           <div className="clues-section">
             <div className="clues-container">
               <div className="clues-across">
-                <h3>Across ({crosswordData.clues.across?.length || 0})</h3>
+                <h3>➡️ Horizontal Patterns ({crosswordData.clues.across?.length || 0})</h3>
                 {(crosswordData.clues.across || []).map(clue => {
                   const wordKey = `${clue.number}-across`;
                   const userAnswer = userAnswers[wordKey] || '';
                   const isComplete = userAnswer.length === clue.length;
                   const isSelected = selectedWord?.number === clue.number && selectedWord?.direction === 'across';
                   const isAutoFilledWord = isWordAutoFilled(clue);
+                  const isSubmittedWord = isWordSubmitted(clue);
                   
                   return (
                     <div 
                       key={clue.number} 
-                      className={`clue ${isSelected ? 'selected' : ''} ${isComplete ? 'complete' : ''} ${isAutoFilledWord ? 'auto-filled' : ''}`}
+                      className={`clue ${isSelected ? 'selected' : ''} ${isComplete ? 'complete' : ''} ${
+                        isAutoFilledWord ? 'auto-filled' : ''
+                      } ${isSubmittedWord ? 'submitted' : ''}`}
                       onClick={() => {
                         setSelectedWord(clue);
                         setSelectedCell({ row: clue.startRow, col: clue.startCol });
@@ -833,6 +1361,7 @@ export default function GameBoard({ game, onGameEnd, currentPlayer, setCurrentPl
                         <span className="clue-text">{clue.text}</span>
                         <span className="clue-progress">({userAnswer.length}/{clue.length})</span>
                         {isAutoFilledWord && <span className="auto-fill-indicator">🤖</span>}
+                        {isSubmittedWord && <span className="submitted-indicator">✅</span>}
                       </div>
                     </div>
                   );
@@ -840,18 +1369,21 @@ export default function GameBoard({ game, onGameEnd, currentPlayer, setCurrentPl
               </div>
 
               <div className="clues-down">
-                <h3>Down ({crosswordData.clues.down?.length || 0})</h3>
+                <h3>⬇️ Vertical Patterns ({crosswordData.clues.down?.length || 0})</h3>
                 {(crosswordData.clues.down || []).map(clue => {
                   const wordKey = `${clue.number}-down`;
                   const userAnswer = userAnswers[wordKey] || '';
                   const isComplete = userAnswer.length === clue.length;
                   const isSelected = selectedWord?.number === clue.number && selectedWord?.direction === 'down';
                   const isAutoFilledWord = isWordAutoFilled(clue);
+                  const isSubmittedWord = isWordSubmitted(clue);
                   
                   return (
                     <div 
                       key={clue.number} 
-                      className={`clue ${isSelected ? 'selected' : ''} ${isComplete ? 'complete' : ''} ${isAutoFilledWord ? 'auto-filled' : ''}`}
+                      className={`clue ${isSelected ? 'selected' : ''} ${isComplete ? 'complete' : ''} ${
+                        isAutoFilledWord ? 'auto-filled' : ''
+                      } ${isSubmittedWord ? 'submitted' : ''}`}
                       onClick={() => {
                         setSelectedWord(clue);
                         setSelectedCell({ row: clue.startRow, col: clue.startCol });
@@ -862,6 +1394,7 @@ export default function GameBoard({ game, onGameEnd, currentPlayer, setCurrentPl
                         <span className="clue-text">{clue.text}</span>
                         <span className="clue-progress">({userAnswer.length}/{clue.length})</span>
                         {isAutoFilledWord && <span className="auto-fill-indicator">🤖</span>}
+                        {isSubmittedWord && <span className="submitted-indicator">✅</span>}
                       </div>
                     </div>
                   );
@@ -876,49 +1409,87 @@ export default function GameBoard({ game, onGameEnd, currentPlayer, setCurrentPl
               <button 
                 className="btn btn-primary"
                 onClick={submitAnswer}
-                disabled={!selectedWord || !userAnswers[`${selectedWord?.number}-${selectedWord?.direction}`]?.trim()}
+                disabled={
+                  !selectedWord || 
+                  !userAnswers[`${selectedWord?.number}-${selectedWord?.direction}`]?.trim() ||
+                  (selectedWord && submittedAnswers.has(`${selectedWord.number}-${selectedWord.direction}`))
+                }
               >
-                Submit Answer
+                {selectedWord && submittedAnswers.has(`${selectedWord.number}-${selectedWord.direction}`) 
+                  ? '📝 Pattern Archived' 
+                  : '🚀 Submit Neural Pattern'
+                }
               </button>
               
               <button 
                 className="btn btn-secondary"
                 onClick={() => setShowPowerUps(!showPowerUps)}
               >
-                Power-Ups ({currentPlayer?.coins || 0} 🪙)
+                ⚡ Quantum Powers ({currentPlayer?.coins || 0} 🪙)
               </button>
             </div>
 
             {showPowerUps && (
               <div className="power-ups-menu">
-                <h4>Power-Ups</h4>
+                <h4>⚡ Quantum Enhancement Tools</h4>
                 <button 
                   className="btn btn-sm btn-accent"
                   onClick={() => usePowerUp('hint')}
                   disabled={(currentPlayer?.coins || 0) < 20}
                 >
-                  Hint (20 🪙)
+                  💡 Neural Hint (20 🪙)
                 </button>
                 <button 
                   className="btn btn-sm btn-accent"
                   onClick={() => usePowerUp('retry')}
                   disabled={(currentPlayer?.coins || 0) < 40}
                 >
-                  Retry (40 🪙)
+                  🔄 Pattern Reset (40 🪙)
                 </button>
               </div>
             )}
 
             <div className="secondary-controls">
-              <button className="btn btn-warning" onClick={() => onGameEnd()}>
-                End Game
+              <button 
+                className="btn btn-info btn-sm"
+                onClick={() => saveGame(`QuantumSave_${Date.now()}`)}
+                title="Archive Current Matrix"
+                disabled={saving}
+              >
+                {saving ? '💾 Archiving...' : '💾 Archive Matrix'}
               </button>
+              <button 
+                className="btn btn-warning" 
+                onClick={handleEndGame}
+              >
+                🏠 Exit to Hub
+              </button>
+            </div>
+
+            {/* Game Progress Info */}
+            <div className="game-progress-info">
+              <div className="progress-item">
+                <span className="progress-label">Patterns Archived:</span>
+                <span className="progress-value">{submittedAnswers.size}</span>
+              </div>
+              <div className="progress-item">
+                <span className="progress-label">Total Neural Patterns:</span>
+                <span className="progress-value">
+                  {(crosswordData.clues.across?.length || 0) + (crosswordData.clues.down?.length || 0)}
+                </span>
+              </div>
+              <div className="progress-item">
+                <span className="progress-label">Patterns Remaining:</span>
+                <span className="progress-value">
+                  {((crosswordData.clues.across?.length || 0) + (crosswordData.clues.down?.length || 0)) - submittedAnswers.size}
+                </span>
+              </div>
             </div>
           </div>
 
           {/* XP Progress */}
           <div className="xp-progress-card">
-            <h3>Level {currentLevel} Progress</h3>
+            <h3>🧠 Level {currentLevel} Neural Evolution</h3>
             <div className="progress-bar">
               <div 
                 className="progress-fill"
@@ -928,14 +1499,14 @@ export default function GameBoard({ game, onGameEnd, currentPlayer, setCurrentPl
               ></div>
             </div>
             <div className="progress-text">
-              {levelInfo.xpProgress} / {levelInfo.xpNeeded} XP to Level {currentLevel + 1}
-              {currentLevel >= 10 && ' (MAX LEVEL!)'}
+              {levelInfo.xpProgress} / {levelInfo.xpNeeded} Neural Energy to Level {currentLevel + 1}
+              {currentLevel >= 10 && ' (MAX EVOLUTION!)'}
             </div>
           </div>
 
           {/* Leaderboard */}
           <div className="leaderboard">
-            <h3>Leaderboard</h3>
+            <h3>🏆 Neural Operative Rankings</h3>
             {players
               .sort((a, b) => (b.score || 0) - (a.score || 0))
               .map((player, index) => (

@@ -9,27 +9,20 @@ export default function App() {
   const [currentGame, setCurrentGame] = useState(null);
   const [currentPlayer, setCurrentPlayer] = useState(null);
 
-  // Navigate to ServiceNow homepage
-  const navigateToHome = () => {
-    if (window.location.hostname.includes('service-now.com')) {
-      // On ServiceNow instance, go to main page
-      window.location.href = '/nav_to.do?uri=%2Fhome.do';
-    } else {
-      // For development/local, just reload or go to a default page
-      window.location.href = '/';
-    }
-  };
-
   const handleGameStart = (gameData) => {
+    console.log('App: Starting game with data:', gameData);
     setCurrentGame(gameData);
     setGameState('playing');
   };
 
   const handleGameEnd = (results) => {
-    setGameState('complete');
+    console.log('App: Game ended with results:', results);
+    // Instead of showing a completion screen, go directly back to setup
+    handleBackToSetup();
   };
 
   const handleBackToSetup = () => {
+    console.log('App: Going back to setup');
     setGameState('setup');
     setCurrentGame(null);
     setCurrentPlayer(null);
@@ -37,17 +30,6 @@ export default function App() {
 
   return (
     <div className="crossword-app">
-      {/* Back to Home Button */}
-      <div className="app-nav">
-        <button 
-          className="btn-home"
-          onClick={navigateToHome}
-          title="Back to ServiceNow Home"
-        >
-          🏠 ServiceNow Home
-        </button>
-      </div>
-
       <main className="app-main">
         {gameState === 'setup' && (
           <GameSetup onGameStart={handleGameStart} />
@@ -76,12 +58,6 @@ export default function App() {
                 }}
               >
                 Start New Game
-              </button>
-              <button 
-                className="btn btn-secondary"
-                onClick={navigateToHome}
-              >
-                Back to ServiceNow Home
               </button>
             </div>
           </div>
