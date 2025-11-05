@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { GameService } from '../services/GameService.js';
+import { ErrorService } from '../services/ErrorService.js';
 import './GameSetup.css';
 
 export default function GameSetup({ onGameStart }) {
-  const [numPlayers, setNumPlayers] = useState(1); // Default to single player
-  const [questionsPerPlayer, setQuestionsPerPlayer] = useState(6); // Reduced for faster games
+  const [numPlayers, setNumPlayers] = useState(1);
+  const [questionsPerPlayer, setQuestionsPerPlayer] = useState(6);
   const [players, setPlayers] = useState([
     { name: '', avatar: 'avatar1', avatarIcon: '👨‍💻' }
   ]);
@@ -19,12 +20,34 @@ export default function GameSetup({ onGameStart }) {
   const [error, setError] = useState(null);
   const [loadingGame, setLoadingGame] = useState(false);
   const [loadingProgress, setLoadingProgress] = useState('');
+  const [connectionStatus, setConnectionStatus] = useState('checking');
 
   useEffect(() => {
-    if (showSavedGames) {
+    testConnectionAndLoadGames();
+  }, []);
+
+  useEffect(() => {
+    if (showSavedGames && connectionStatus === 'connected') {
       loadSavedGames();
     }
-  }, [showSavedGames]);
+  }, [showSavedGames, connectionStatus]);
+
+  const testConnectionAndLoadGames = async () => {
+    try {
+      setConnectionStatus('checking');
+      const isConnected = await gameService.testConnection();
+      setConnectionStatus(isConnected ? 'connected' : 'disconnected');
+      
+      if (!isConnected) {
+        setError('Unable to connect to ServiceNow. Please check your connection.');
+        ErrorService.showUserMessage('Connection to ServiceNow failed. Some features may not work.', 'warning');
+      }
+    } catch (error) {
+      console.error('Connection test failed:', error);
+      setConnectionStatus('disconnected');
+      setError('Connection test failed');
+    }
+  };
 
   const getCurrentUserId = () => {
     if (window.g_user && window.g_user.userID) return window.g_user.userID;
@@ -33,7 +56,45 @@ export default function GameSetup({ onGameStart }) {
     return 'guest_user_' + Date.now();
   };
 
+  // Helper function to safely extract string values from ServiceNow field objects
+  const getFieldValue = (field, defaultValue = '') => {
+    if (!field) return defaultValue;
+    
+    if (typeof field === 'string' || typeof field === 'number') {
+      return String(field);
+    }
+    
+    if (field && typeof field === 'object') {
+      if (field.display_value !== undefined) {
+        return String(field.display_value);
+      }
+      if (field.value !== undefined) {
+        return String(field.value);
+      }
+    }
+    
+    return defaultValue;
+  };
+
+  // Helper function to safely get status as string
+  const getStatusString = (status) => {
+    const statusValue = getFieldValue(status, 'active');
+    return statusValue.toLowerCase();
+  };
+
+  // Helper function to safely get numeric values
+  const getNumericValue = (field, defaultValue = 0) => {
+    const fieldValue = getFieldValue(field, String(defaultValue));
+    const num = parseInt(fieldValue);
+    return isNaN(num) ? defaultValue : num;
+  };
+
   const loadSavedGames = async () => {
+    if (connectionStatus !== 'connected') {
+      setError('Cannot load saved games - not connected to ServiceNow');
+      return;
+    }
+
     setLoading(true);
     setError(null);
     
@@ -41,39 +102,29 @@ export default function GameSetup({ onGameStart }) {
       const userId = getCurrentUserId();
       console.log('Loading saved games for user:', userId);
       
-      // Use the REST API to get saved games
-      const response = await fetch(`/api/now/table/x_1599224_servicen_game_sessions?sysparm_query=created_by=${userId}^ORstatus!=cancelled&sysparm_display_value=all&sysparm_limit=20&sysparm_order_by=sys_created_onDESC`, {
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-          'X-UserToken': window.g_ck || ''
-        }
-      });
+      const games = await ErrorService.retryWithExponentialBackoff(
+        () => gameService.getSavedGames(userId),
+        3,
+        1000
+      );
 
-      console.log('Response status:', response.status);
+      setSavedGames(games || []);
       
-      if (response.ok) {
-        const result = await response.json();
-        console.log('Saved games result:', result);
-        setSavedGames(result.result || []);
-        
-        if (!result.result || result.result.length === 0) {
-          console.log('No saved games found');
-        }
+      if (!games || games.length === 0) {
+        console.log('No saved games found for user:', userId);
       } else {
-        const errorText = await response.text();
-        console.error('Error response:', errorText);
-        throw new Error(`Failed to load saved games: ${response.status} ${response.statusText}`);
+        console.log(`Found ${games.length} saved games`);
       }
     } catch (error) {
       console.error('Error loading saved games:', error);
-      setError(error.message);
+      const errorMessage = ErrorService.handleLoadError(error);
+      setError(errorMessage);
+      ErrorService.showUserMessage(errorMessage, 'error');
     } finally {
       setLoading(false);
     }
   };
 
-  // Helper function to get avatar icon from avatar type
   const getAvatarIcon = (avatarType) => {
     const avatarIcons = {
       'avatar1': '👨‍💻',
@@ -89,137 +140,165 @@ export default function GameSetup({ onGameStart }) {
   };
 
   const loadSavedGame = async (gameSession) => {
+    if (connectionStatus !== 'connected') {
+      ErrorService.showUserMessage('Cannot load game - not connected to ServiceNow', 'error');
+      return;
+    }
+
     setLoadingGame(true);
-    setLoadingProgress('Initializing game load...');
+    setLoadingProgress('Loading game session...');
     
     try {
-      console.log('🎮 Starting to load saved game:', gameSession);
+      console.log('Starting to load saved game:', gameSession);
       
-      setLoadingProgress('Fetching session data...');
-      await new Promise(resolve => setTimeout(resolve, 500)); // Visual feedback
+      if (!gameSession || !getFieldValue(gameSession.sys_id)) {
+        throw new Error('Invalid game session data');
+      }
       
-      // Get players for this session
-      setLoadingProgress('Loading players...');
-      const sessionPlayers = await gameService.getGamePlayers(gameSession.sys_id);
-      console.log('📊 Session players loaded:', sessionPlayers);
+      const sessionId = getFieldValue(gameSession.sys_id);
       
-      if (sessionPlayers.length === 0) {
-        setLoadingProgress('No players found!');
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        throw new Error('No players found for this saved game');
+      setLoadingProgress('Retrieving session data...');
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+      await ErrorService.retryWithExponentialBackoff(
+        () => gameService.getGameSession(sessionId),
+        2,
+        500
+      );
+      
+      setLoadingProgress('Loading player information...');
+      const sessionPlayers = await ErrorService.retryWithExponentialBackoff(
+        () => gameService.getGamePlayers(sessionId),
+        3,
+        1000
+      );
+      
+      console.log('Session players loaded:', sessionPlayers);
+      
+      if (!sessionPlayers || sessionPlayers.length === 0) {
+        throw new Error('No players found for this saved game. The game data may be corrupted.');
       }
 
       setLoadingProgress('Processing player data...');
       await new Promise(resolve => setTimeout(resolve, 300));
 
-      // Filter unique players to avoid duplicates
       const uniquePlayers = [];
       const seenPlayers = new Set();
       
       for (const p of sessionPlayers) {
-        const playerKey = `${p.player_name}_${p.player_order}`;
+        const playerName = getFieldValue(p.player_name);
+        if (!playerName) {
+          console.warn('Skipping player with no name:', p);
+          continue;
+        }
+        
+        const playerOrder = getNumericValue(p.player_order, 0);
+        const playerKey = `${playerName}_${playerOrder}`;
         if (!seenPlayers.has(playerKey)) {
           seenPlayers.add(playerKey);
           uniquePlayers.push(p);
         }
       }
 
-      console.log('✅ Unique players after filtering:', uniquePlayers);
+      console.log('Unique players after filtering:', uniquePlayers);
 
       if (uniquePlayers.length === 0) {
-        setLoadingProgress('No valid players found!');
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        throw new Error('No valid players found for this saved game');
+        throw new Error('No valid players found in saved game data');
       }
 
-      setLoadingProgress('Building game configuration...');
+      setLoadingProgress('Preparing game configuration...');
       await new Promise(resolve => setTimeout(resolve, 300));
 
-      // Convert back to game config format with all required properties
       const gameConfig = {
         numPlayers: uniquePlayers.length,
-        questionsPerPlayer: parseInt(gameSession.questions_per_player) || 6,
-        players: uniquePlayers.map(p => ({
-          name: p.player_name || 'Unknown Player',
-          avatar: p.avatar || 'avatar1',
-          avatarIcon: getAvatarIcon(p.avatar || 'avatar1'), // Restore from avatar type
-          score: parseInt(p.score) || 0,
-          level: parseInt(p.level) || 1,
-          experience_points: parseInt(p.experience_points) || 0,
-          coins: parseInt(p.coins) || 100,
-          current_streak: parseInt(p.current_streak) || 0,
-          best_streak: parseInt(p.best_streak) || 0,
-          correct_answers: parseInt(p.correct_answers) || 0,
-          incorrect_answers: parseInt(p.incorrect_answers) || 0,
-          sys_id: p.sys_id // Keep the sys_id for updating
-        })),
-        playerLevel: parseInt(uniquePlayers[0].level) || 1,
-        cumulativeXP: parseInt(uniquePlayers[0].experience_points) || 0,
-        savedGameSessionId: gameSession.sys_id,
+        questionsPerPlayer: Math.max(3, getNumericValue(gameSession.questions_per_player, 6)),
+        players: uniquePlayers.map((p, index) => {
+          const player = {
+            name: getFieldValue(p.player_name) || `Player ${index + 1}`,
+            avatar: getFieldValue(p.avatar, 'avatar1'),
+            avatarIcon: getAvatarIcon(getFieldValue(p.avatar, 'avatar1')),
+            score: Math.max(0, getNumericValue(p.score, 0)),
+            level: Math.max(1, getNumericValue(p.level, 1)),
+            experience_points: Math.max(0, getNumericValue(p.experience_points, 0)),
+            coins: Math.max(0, getNumericValue(p.coins, 100)),
+            current_streak: Math.max(0, getNumericValue(p.current_streak, 0)),
+            best_streak: Math.max(0, getNumericValue(p.best_streak, 0)),
+            correct_answers: Math.max(0, getNumericValue(p.correct_answers, 0)),
+            incorrect_answers: Math.max(0, getNumericValue(p.incorrect_answers, 0)),
+            sys_id: getFieldValue(p.sys_id)
+          };
+          
+          if (!player.name.trim()) {
+            player.name = `Player ${index + 1}`;
+          }
+          
+          return player;
+        }),
+        playerLevel: Math.max(1, getNumericValue(uniquePlayers[0].level, 1)),
+        cumulativeXP: Math.max(0, getNumericValue(uniquePlayers[0].experience_points, 0)),
+        savedGameSessionId: sessionId,
         roomCode: null,
         isMultiplayer: uniquePlayers.length > 1,
-        // Add missing properties that GameBoard expects
-        difficulty: gameSession.difficulty || 'easy'
+        difficulty: getFieldValue(gameSession.difficulty, 'easy')
       };
 
-      console.log('🚀 Final game config ready:', gameConfig);
-      
-      // Make sure we have valid data before starting
-      if (!gameConfig.players || gameConfig.players.length === 0) {
-        throw new Error('No valid players found in saved game');
+      const validationErrors = ErrorService.validateGameData(gameConfig);
+      if (validationErrors.length > 0) {
+        throw new Error(`Game validation failed: ${validationErrors.join(', ')}`);
       }
 
-      // Ensure players have names
-      gameConfig.players.forEach((player, index) => {
-        if (!player.name || player.name.trim() === '') {
-          player.name = `Player ${index + 1}`;
-        }
-      });
-
+      console.log('Final game config ready:', gameConfig);
+      
       setLoadingProgress('Starting game...');
       await new Promise(resolve => setTimeout(resolve, 500));
 
-      console.log('✨ All validations passed, starting game!');
+      console.log('All validations passed, starting game!');
+      ErrorService.showUserMessage('Game loaded successfully!', 'success', 2000);
       onGameStart(gameConfig);
       
     } catch (error) {
-      console.error('❌ Error loading saved game:', error);
-      setLoadingProgress(`Error: ${error.message}`);
+      console.error('Error loading saved game:', error);
+      ErrorService.logError(error, 'loadSavedGame', { sessionId: gameSession?.sys_id });
       
-      // Show error for 3 seconds, then reset
+      const errorMessage = ErrorService.handleLoadError(error);
+      setLoadingProgress(`Error: ${errorMessage}`);
+      ErrorService.showUserMessage(errorMessage, 'error', 8000);
+      
       setTimeout(() => {
         setLoadingGame(false);
         setLoadingProgress('');
-        alert('Error loading saved game: ' + error.message);
       }, 3000);
     }
   };
 
   const deleteSavedGame = async (gameId, gameName) => {
-    if (!confirm(`Are you sure you want to delete "${gameName}"?`)) {
+    if (connectionStatus !== 'connected') {
+      ErrorService.showUserMessage('Cannot delete game - not connected to ServiceNow', 'error');
+      return;
+    }
+
+    const gameIdValue = getFieldValue(gameId);
+    const gameNameValue = getFieldValue(gameName, 'Unnamed Game');
+
+    if (!confirm(`Are you sure you want to delete "${gameNameValue}"?`)) {
       return;
     }
 
     try {
-      const response = await fetch(`/api/now/table/x_1599224_servicen_game_sessions/${gameId}`, {
-        method: 'DELETE',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-          'X-UserToken': window.g_ck || ''
-        }
-      });
-
-      if (response.ok) {
-        // Reload saved games
-        await loadSavedGames();
-        alert(`Game "${gameName}" deleted successfully`);
-      } else {
-        throw new Error('Failed to delete game');
-      }
+      await ErrorService.retryWithExponentialBackoff(
+        () => gameService.deleteGameSession(gameIdValue),
+        2,
+        1000
+      );
+      
+      ErrorService.showUserMessage(`Game "${gameNameValue}" deleted successfully`, 'success');
+      await loadSavedGames();
     } catch (error) {
       console.error('Error deleting saved game:', error);
-      alert('Error deleting game: ' + error.message);
+      ErrorService.logError(error, 'deleteSavedGame', { gameId: gameIdValue, gameName: gameNameValue });
+      
+      const errorMessage = ErrorService.handleApiError(error, 'deleting game');
+      ErrorService.showUserMessage(errorMessage, 'error');
     }
   };
 
@@ -255,7 +334,6 @@ export default function GameSetup({ onGameStart }) {
     setIsMultiplayer(true);
     setShowRoomOptions(true);
     
-    // Store room data in localStorage for persistence
     const roomData = {
       code: newRoomCode,
       host: players[0]?.name || 'Host',
@@ -268,7 +346,7 @@ export default function GameSetup({ onGameStart }) {
 
   const joinRoom = () => {
     if (!joinRoomCode.trim()) {
-      alert('Please enter a room code');
+      ErrorService.showUserMessage('Please enter a room code', 'warning');
       return;
     }
     
@@ -278,49 +356,83 @@ export default function GameSetup({ onGameStart }) {
       setRoomCode(joinRoomCode.toUpperCase());
       setIsMultiplayer(true);
       setQuestionsPerPlayer(room.questionsPerPlayer);
-      // Add current player to room
       room.players.push(players[0]);
       localStorage.setItem(`crossword_room_${joinRoomCode.toUpperCase()}`, JSON.stringify(room));
+      ErrorService.showUserMessage(`Joined room ${joinRoomCode.toUpperCase()}!`, 'success');
     } else {
-      alert('Room not found. Please check the room code.');
+      ErrorService.showUserMessage('Room not found. Please check the room code.', 'error');
     }
   };
 
   const copyRoomLink = () => {
     const link = `${window.location.origin}${window.location.pathname}?room=${roomCode}`;
-    navigator.clipboard.writeText(link).then(() => {
-      alert('Room link copied to clipboard!');
-    });
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(link).then(() => {
+        ErrorService.showUserMessage('Room link copied to clipboard!', 'success');
+      }).catch(() => {
+        ErrorService.showUserMessage('Could not copy link. Please copy manually: ' + link, 'info', 8000);
+      });
+    } else {
+      ErrorService.showUserMessage('Could not copy link. Please copy manually: ' + link, 'info', 8000);
+    }
   };
 
   const handleStartGame = () => {
-    const validPlayers = players.filter(p => p.name.trim());
-    if (validPlayers.length !== numPlayers) {
-      alert('Please enter names for all players');
-      return;
+    try {
+      const validPlayers = players.filter(p => p.name && p.name.trim());
+      
+      if (validPlayers.length === 0) {
+        ErrorService.showUserMessage('Please enter at least one player name', 'warning');
+        return;
+      }
+      
+      if (validPlayers.length !== numPlayers) {
+        ErrorService.showUserMessage('Please enter names for all players', 'warning');
+        return;
+      }
+
+      const gameConfig = {
+        numPlayers,
+        questionsPerPlayer,
+        players: validPlayers.map(p => ({
+          ...p,
+          name: p.name.trim()
+        })),
+        roomCode: roomCode || null,
+        isMultiplayer,
+        playerLevel: 1
+      };
+
+      const validationErrors = ErrorService.validateGameData(gameConfig);
+      if (validationErrors.length > 0) {
+        ErrorService.showUserMessage(`Please fix: ${validationErrors.join(', ')}`, 'warning');
+        return;
+      }
+
+      ErrorService.showUserMessage('Starting new game...', 'success', 2000);
+      onGameStart(gameConfig);
+    } catch (error) {
+      console.error('Error starting game:', error);
+      ErrorService.logError(error, 'handleStartGame');
+      ErrorService.showUserMessage('Failed to start game. Please try again.', 'error');
     }
-
-    const gameConfig = {
-      numPlayers,
-      questionsPerPlayer,
-      players: validPlayers,
-      roomCode: roomCode || null,
-      isMultiplayer,
-      // Remove difficulty - will be determined by player level
-      playerLevel: 1 // Starting level
-    };
-
-    onGameStart(gameConfig);
   };
 
   const formatDate = (dateString) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
+    try {
+      const dateValue = getFieldValue(dateString);
+      if (!dateValue) return 'Unknown date';
+      
+      return new Date(dateValue).toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    } catch (error) {
+      return 'Unknown date';
+    }
   };
 
   const avatarOptions = [
@@ -334,55 +446,26 @@ export default function GameSetup({ onGameStart }) {
     { id: 'avatar8', icon: '🧠', name: 'Expert' }
   ];
 
-  // Show futuristic loading screen if loading a game
   if (loadingGame) {
     return (
-      <div className="game-setup fade-in">
+      <div className="game-setup-fullscreen fade-in">
         <div className="setup-container">
           <div className="setup-header">
-            <h2>🌟 QUANTUM LOADING 🌟</h2>
-            <p>Reconstructing saved game matrix...</p>
+            <h2>Loading Game Session</h2>
+            <p>Retrieving your saved game data...</p>
           </div>
           <div className="setup-content">
             <div className="card">
               <div className="loading-saved-games">
                 <div className="loading-spinner"></div>
-                <div style={{
-                  fontSize: '1.3rem',
-                  fontWeight: '600',
-                  marginBottom: '1rem',
-                  background: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)',
-                  WebkitBackgroundClip: 'text',
-                  WebkitTextFillColor: 'transparent',
-                  backgroundClip: 'text'
-                }}>
+                <div className="loading-progress-text">
                   {loadingProgress || 'Initializing...'}
                 </div>
-                <div style={{
-                  width: '100%',
-                  height: '8px',
-                  background: 'rgba(255, 255, 255, 0.1)',
-                  borderRadius: '20px',
-                  overflow: 'hidden',
-                  marginTop: '2rem'
-                }}>
-                  <div style={{
-                    height: '100%',
-                    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                    borderRadius: '20px',
-                    animation: 'loadingBar 2s ease-in-out infinite',
-                    width: '100%'
-                  }}></div>
+                <div className="loading-bar-container">
+                  <div className="loading-bar"></div>
                 </div>
-                <style>{`
-                  @keyframes loadingBar {
-                    0% { transform: translateX(-100%); }
-                    50% { transform: translateX(0%); }
-                    100% { transform: translateX(100%); }
-                  }
-                `}</style>
-                <p style={{marginTop: '2rem', color: 'rgba(255, 255, 255, 0.7)'}}>
-                  🚀 Quantum entanglement in progress...
+                <p className="loading-description">
+                  Please wait while we restore your game progress
                 </p>
               </div>
             </div>
@@ -393,18 +476,27 @@ export default function GameSetup({ onGameStart }) {
   }
 
   return (
-    <div className="game-setup fade-in">
+    <div className="game-setup-fullscreen fade-in">
       <div className="setup-container">
         <div className="setup-header">
-          <h2>🌌 SERVICENOW NEXUS 🌌</h2>
-          <p>Experience the future of ServiceNow learning through quantum crosswords!</p>
+          <h2>ServiceNow Crossword Challenge</h2>
+          <p>Test your ServiceNow knowledge through interactive crossword puzzles!</p>
+          {connectionStatus === 'disconnected' && (
+            <div className="connection-warning">
+              ⚠️ Connection to ServiceNow lost - some features may not work
+            </div>
+          )}
         </div>
 
-        {/* Game Mode Selection */}
         <div className="setup-content">
           <div className="card mode-selection-card">
             <div className="card-header">
-              <h3>🎮 Select Your Mission</h3>
+              <h3>📋 Game Mode</h3>
+              {connectionStatus === 'checking' && (
+                <div className="connection-status">
+                  Connecting...
+                </div>
+              )}
             </div>
             <div className="card-body">
               <div className="mode-buttons">
@@ -412,41 +504,52 @@ export default function GameSetup({ onGameStart }) {
                   className={`btn ${!showSavedGames ? 'btn-primary' : 'btn-secondary'}`}
                   onClick={() => setShowSavedGames(false)}
                 >
-                  ⚡ New Quantum Game
+                  🆕 New Game
                 </button>
                 <button 
                   className={`btn ${showSavedGames ? 'btn-primary' : 'btn-secondary'}`}
                   onClick={() => setShowSavedGames(true)}
+                  disabled={connectionStatus !== 'connected'}
+                  title={connectionStatus !== 'connected' ? 'Requires ServiceNow connection' : ''}
                 >
-                  💾 Load Saved Matrix
+                  📁 Continue Game
                 </button>
               </div>
             </div>
           </div>
 
           {showSavedGames ? (
-            /* Saved Games Section */
             <div className="card saved-games-card">
               <div className="card-header">
-                <h3>🗂️ Your Quantum Archives</h3>
+                <h3>📂 Saved Games</h3>
                 <button 
                   className="btn btn-sm btn-secondary"
                   onClick={loadSavedGames}
                   title="Refresh saved games list"
-                  disabled={loading}
+                  disabled={loading || connectionStatus !== 'connected'}
                 >
-                  {loading ? '⏳' : '🔄'} Refresh Matrix
+                  {loading ? '⏳' : '🔄'} Refresh
                 </button>
               </div>
               <div className="card-body">
-                {loading ? (
+                {connectionStatus !== 'connected' ? (
+                  <div className="error-saved-games">
+                    <p>❌ Cannot load saved games - ServiceNow connection required</p>
+                    <button 
+                      className="btn btn-primary btn-sm"
+                      onClick={testConnectionAndLoadGames}
+                    >
+                      🔄 Retry Connection
+                    </button>
+                  </div>
+                ) : loading ? (
                   <div className="loading-saved-games">
                     <div className="loading-spinner"></div>
-                    <p>🔍 Scanning quantum archives...</p>
+                    <p>🔍 Loading saved games...</p>
                   </div>
                 ) : error ? (
                   <div className="error-saved-games">
-                    <p>❌ Matrix error: {error}</p>
+                    <p>❌ Error: {error}</p>
                     <button 
                       className="btn btn-primary btn-sm"
                       onClick={loadSavedGames}
@@ -456,87 +559,94 @@ export default function GameSetup({ onGameStart }) {
                   </div>
                 ) : savedGames.length === 0 ? (
                   <div className="no-saved-games">
-                    <p>🌟 No archived games detected in the quantum matrix.</p>
-                    <p>Begin your journey and save your progress to populate this space!</p>
-                    <p><small>🆔 Neural ID: {getCurrentUserId()}</small></p>
+                    <p>📋 No saved games found.</p>
+                    <p>Start a new game and save your progress to see it here!</p>
+                    <p><small>👤 User ID: {getCurrentUserId()}</small></p>
                   </div>
                 ) : (
                   <div className="saved-games-list">
-                    {savedGames.map(game => (
-                      <div key={game.sys_id} className="saved-game-item">
-                        <div className="game-info">
-                          <h4 className="game-name">🎯 {game.session_name}</h4>
-                          <div className="game-details">
-                            <span className="game-status">
-                              Status: <span className={`status-badge status-${game.status}`}>
-                                {game.status.toUpperCase()}
+                    {savedGames.map(game => {
+                      const statusString = getStatusString(game.status);
+                      const gameName = getFieldValue(game.session_name, 'Unnamed Game');
+                      const difficulty = getFieldValue(game.difficulty, 'easy');
+                      const numPlayers = getNumericValue(game.num_players, 1);
+                      const createdOn = getFieldValue(game.sys_created_on);
+                      const gameId = getFieldValue(game.sys_id);
+                      
+                      return (
+                        <div key={gameId} className="saved-game-item">
+                          <div className="game-info">
+                            <h4 className="game-name">📋 {gameName}</h4>
+                            <div className="game-details">
+                              <span className="game-status">
+                                Status: <span className={`status-badge status-${statusString}`}>
+                                  {statusString.toUpperCase()}
+                                </span>
                               </span>
-                            </span>
-                            <span className="game-difficulty">
-                              🔥 Level: {game.difficulty.toUpperCase()}
-                            </span>
-                            <span className="game-players">
-                              👥 Players: {game.num_players}
-                            </span>
-                            <span className="game-date">
-                              📅 Archived: {formatDate(game.sys_created_on)}
-                            </span>
+                              <span className="game-difficulty">
+                                📈 Difficulty: {difficulty.toUpperCase()}
+                              </span>
+                              <span className="game-players">
+                                👥 Players: {numPlayers}
+                              </span>
+                              <span className="game-date">
+                                📅 Created: {formatDate(createdOn)}
+                              </span>
+                            </div>
+                          </div>
+                          <div className="game-actions">
+                            <button 
+                              className="btn btn-primary btn-sm"
+                              onClick={() => loadSavedGame(game)}
+                              disabled={loadingGame}
+                            >
+                              {loadingGame ? '⏳ Loading...' : '▶️ Continue'}
+                            </button>
+                            <button 
+                              className="btn btn-danger btn-sm"
+                              onClick={() => deleteSavedGame(gameId, gameName)}
+                              disabled={loadingGame}
+                            >
+                              🗑️ Delete
+                            </button>
                           </div>
                         </div>
-                        <div className="game-actions">
-                          <button 
-                            className="btn btn-primary btn-sm"
-                            onClick={() => loadSavedGame(game)}
-                            disabled={loadingGame}
-                          >
-                            {loadingGame ? '⏳ Loading...' : '🚀 Continue Mission'}
-                          </button>
-                          <button 
-                            className="btn btn-danger btn-sm"
-                            onClick={() => deleteSavedGame(game.sys_id, game.session_name)}
-                            disabled={loadingGame}
-                          >
-                            🗑️ Delete
-                          </button>
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>
             </div>
           ) : (
-            /* New Game Section */
             <>
-              {/* Game Configuration */}
               <div className="card config-card">
                 <div className="card-header">
-                  <h3>⚙️ Mission Parameters</h3>
+                  <h3>⚙️ Game Configuration</h3>
                 </div>
                 <div className="card-body">
                   <div className="grid grid-2">
                     <div className="form-group">
-                      <label className="form-label">👥 Neural Operatives</label>
+                      <label className="form-label">👥 Number of Players</label>
                       <select 
                         className="form-control form-select"
                         value={numPlayers}
                         onChange={(e) => handleNumPlayersChange(parseInt(e.target.value))}
                       >
                         {[1, 2, 3, 4, 5, 6, 7, 8].map(num => (
-                          <option key={num} value={num}>{num} Operative{num > 1 ? 's' : ''}</option>
+                          <option key={num} value={num}>{num} Player{num > 1 ? 's' : ''}</option>
                         ))}
                       </select>
                     </div>
 
                     <div className="form-group">
-                      <label className="form-label">🧩 Challenge Matrix Size</label>
+                      <label className="form-label">❓ Questions per Player</label>
                       <select 
                         className="form-control form-select"
                         value={questionsPerPlayer}
                         onChange={(e) => setQuestionsPerPlayer(parseInt(e.target.value))}
                       >
                         {[3, 6, 9, 12, 15].map(num => (
-                          <option key={num} value={num}>{num} Quantum Challenges</option>
+                          <option key={num} value={num}>{num} Questions</option>
                         ))}
                       </select>
                     </div>
@@ -544,21 +654,20 @@ export default function GameSetup({ onGameStart }) {
 
                   <div className="level-info">
                     <div className="level-description">
-                      <h4>🎯 Neural Evolution System</h4>
-                      <p>• Initialize at <strong>Level 1</strong> with basic ServiceNow quantum packets</p>
-                      <p>• Absorb XP energy for correct solutions to evolve your neural matrix</p>
-                      <p>• Advanced levels = complex challenges + amplified rewards</p>
-                      <p>• Surprise quantum anomalies appear randomly for bonus evolution!</p>
+                      <h4>📊 Experience System</h4>
+                      <p>• Start at <strong>Level 1</strong> with basic ServiceNow knowledge questions</p>
+                      <p>• Earn experience points (XP) for correct answers to level up</p>
+                      <p>• Higher levels unlock more challenging questions and better rewards</p>
+                      <p>• Bonus questions appear randomly for extra points!</p>
                     </div>
                   </div>
                 </div>
               </div>
 
-              {/* Multiplayer Options */}
               {numPlayers > 1 && (
                 <div className="card multiplayer-card">
                   <div className="card-header">
-                    <h3>🌐 Neural Network Options</h3>
+                    <h3>🌐 Multiplayer Options</h3>
                   </div>
                   <div className="card-body">
                     <div className="multiplayer-controls">
@@ -567,14 +676,14 @@ export default function GameSetup({ onGameStart }) {
                         onClick={createRoom}
                         disabled={showRoomOptions}
                       >
-                        🚀 Create Quantum Room
+                        🏠 Create Room
                       </button>
                       
                       <div className="join-room-section">
                         <input
                           type="text"
                           className="form-control"
-                          placeholder="Enter quantum access code"
+                          placeholder="Enter room code"
                           value={joinRoomCode}
                           onChange={(e) => setJoinRoomCode(e.target.value.toUpperCase())}
                           maxLength={6}
@@ -583,20 +692,20 @@ export default function GameSetup({ onGameStart }) {
                           className="btn btn-secondary"
                           onClick={joinRoom}
                         >
-                          🔗 Join Matrix
+                          🚪 Join Room
                         </button>
                       </div>
                     </div>
 
                     {showRoomOptions && roomCode && (
                       <div className="room-info">
-                        <h4>🌟 Quantum Room: {roomCode}</h4>
-                        <p>Share this access code with other operatives to join your quantum mission</p>
+                        <h4>🏠 Room Code: {roomCode}</h4>
+                        <p>Share this code with other players to join your game session</p>
                         <button 
                           className="btn btn-accent btn-sm"
                           onClick={copyRoomLink}
                         >
-                          📋 Copy Quantum Link
+                          📋 Copy Room Link
                         </button>
                       </div>
                     )}
@@ -604,32 +713,32 @@ export default function GameSetup({ onGameStart }) {
                 </div>
               )}
 
-              {/* Player Configuration */}
               <div className="card players-card">
                 <div className="card-header">
-                  <h3>👤 Neural Operative Configuration</h3>
+                  <h3>👤 Player Setup</h3>
                 </div>
                 <div className="card-body">
                   <div className="players-grid">
                     {players.map((player, index) => (
                       <div key={index} className="player-config">
                         <div className="player-header">
-                          <h4>🚀 Operative {index + 1}</h4>
+                          <h4>👤 Player {index + 1}</h4>
                         </div>
                         
                         <div className="form-group">
-                          <label className="form-label">🏷️ Neural Identity</label>
+                          <label className="form-label">🏷️ Name</label>
                           <input
                             type="text"
                             className="form-control"
-                            placeholder={`Enter Operative ${index + 1} codename`}
+                            placeholder={`Enter Player ${index + 1} name`}
                             value={player.name}
                             onChange={(e) => updatePlayer(index, 'name', e.target.value)}
+                            maxLength={50}
                           />
                         </div>
 
                         <div className="form-group">
-                          <label className="form-label">🎭 Avatar & Specialization</label>
+                          <label className="form-label">🎭 Avatar & Role</label>
                           <select
                             className="form-control form-select"
                             value={player.avatar}
@@ -641,7 +750,7 @@ export default function GameSetup({ onGameStart }) {
                           >
                             {avatarOptions.map(avatar => (
                               <option key={avatar.id} value={avatar.id}>
-                                {avatar.icon} Quantum {avatar.name}
+                                {avatar.icon} {avatar.name}
                               </option>
                             ))}
                           </select>
@@ -651,7 +760,7 @@ export default function GameSetup({ onGameStart }) {
                           <div className={`avatar ${player.avatar}`}>
                             <span className="avatar-icon">{player.avatarIcon}</span>
                           </div>
-                          <span className="avatar-name">{player.name || `Operative ${index + 1}`}</span>
+                          <span className="avatar-name">{player.name || `Player ${index + 1}`}</span>
                         </div>
                       </div>
                     ))}
@@ -668,7 +777,7 @@ export default function GameSetup({ onGameStart }) {
               className="btn btn-primary btn-lg"
               onClick={handleStartGame}
             >
-              🚀 Initialize Level 1 Matrix
+              🎯 Start Game
             </button>
           </div>
         )}

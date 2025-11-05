@@ -28,6 +28,7 @@ declare global {
                     'components/GameSetup.css': {
                         table: 'sys_ux_theme_asset'
                         id: 'af783eb1455443b9bf5431984b38836f'
+                        deleted: true
                     }
                     'crossword-category': {
                         table: 'sys_app_category'
